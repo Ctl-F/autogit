@@ -21,10 +21,6 @@ pub const Git = struct {
 
         std.debug.assert(map.get("PATH") != null);
 
-        std.debug.print("{s}\n", .{cwd});
-        const dir = try std.fs.cwd().openDir(cwd, .{});
-        std.debug.print("{}\n", .{dir});
-
         return .{
             .allocator = allocator,
             .cwd = cwd,
@@ -64,7 +60,7 @@ pub const Git = struct {
         return this.unwrap_result(result);
     }
 
-    pub fn get_file_statuses(this: *@This()) !std.ArrayList(File) {
+    pub fn get_file_statuses(this: *@This(), buffer: *[]const u8) !std.ArrayList(File) {
         const result = try std.process.Child.run(.{
             .allocator = this.allocator,
             .argv = &.{ "git", "status", "--porcelain", "--untracked-files=all" },
@@ -73,8 +69,7 @@ pub const Git = struct {
         });
 
         const stdout = this.unwrap_result(result);
-
-        defer this.allocator.free(stdout);
+        buffer.* = stdout;
         return try this.parse_files(stdout);
     }
 
@@ -113,10 +108,10 @@ pub const Git = struct {
                 };
             };
 
-            const filename = buffer[3..];
+            const filename = line[3..];
             const extPos = std.mem.lastIndexOfScalar(u8, filename, '.');
             const ext = if (extPos) |ep|
-                buffer[ep + 1 ..]
+                line[ep + 1 ..]
             else
                 "";
 

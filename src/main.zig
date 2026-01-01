@@ -16,10 +16,15 @@ pub fn main() !void {
 
     std.debug.print("Branch: {s}\n", .{branch});
 
-    var files = try git.get_file_statuses();
+    var buffer: []const u8 = &.{};
+    var files = try git.get_file_statuses(&buffer);
+
+    std.debug.print("\n\n{s}\n\n", .{buffer});
+
+    defer gpa.allocator().free(buffer);
     defer files.deinit(gpa.allocator());
 
     for (files.items) |file| {
-        std.debug.print("{}\n", .{file});
+        std.debug.print("[{}] '{s}'\n", .{ file.status, file.filename });
     }
 }
