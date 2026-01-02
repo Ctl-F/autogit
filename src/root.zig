@@ -1,10 +1,16 @@
 //! By convention, root.zig is the root source file when making a library.
 const std = @import("std");
-
+const zeit = @import("zeit");
 // RULES: If BRANCH is master or main
 //      Generate new branch and commit to it
 //          ELSE
 //      Push to current branch
+
+pub const Config = struct {
+    username: []const u8,
+    auto_add_commit_extensions: []const u8, // comma delimited list
+    abort_on_conflicting: bool = true,
+};
 
 pub const Git = struct {
     // Branch: git rev-parse --abbrev-ref HEAD
@@ -14,8 +20,9 @@ pub const Git = struct {
     allocator: std.mem.Allocator,
     cwd: []const u8,
     env: std.process.EnvMap,
+    conf: Config,
 
-    pub fn init(allocator: std.mem.Allocator, cwd: []const u8) !@This() {
+    pub fn init(allocator: std.mem.Allocator, cwd: []const u8, conf: Config) !@This() {
         var map = try std.process.getEnvMap(allocator);
         errdefer map.deinit();
 
@@ -25,6 +32,7 @@ pub const Git = struct {
             .allocator = allocator,
             .cwd = cwd,
             .env = map,
+            .conf = conf,
         };
     }
 
@@ -33,11 +41,11 @@ pub const Git = struct {
     }
 
     pub const Status = enum {
-        Add,
-        Modify,
-        Delete,
-        Rename,
-        Conflict,
+        Added,
+        Modified,
+        Deleted,
+        Renamed,
+        Conflicting,
         Untracked,
         Unchanged,
         Unsupported,
@@ -91,7 +99,7 @@ pub const Git = struct {
 
             const status = STAT: {
                 if (X == 'U' or Y == 'U') {
-                    break :STAT Status.Conflict;
+                    break :STAT Status.Conflicting;
                 }
 
                 if (X == '?' or Y == '?') {
@@ -99,10 +107,10 @@ pub const Git = struct {
                 }
 
                 break :STAT switch (Y) {
-                    'M' => Status.Modify,
-                    'A' => Status.Add,
-                    'R' => Status.Rename,
-                    'D' => Status.Delete,
+                    'M' => Status.Modified,
+                    'A' => Status.Added,
+                    'R' => Status.Renamed,
+                    'D' => Status.Deleted,
                     ' ' => Status.Unchanged,
                     else => Status.Unsupported,
                 };
@@ -132,5 +140,27 @@ pub const Git = struct {
 
         this.allocator.free(result.stderr);
         return result.stdout;
+    }
+
+    pub fn gen_branch_name(this: *@This()) ![]const u8 {
+        const now = try zeit.instant(.{});
+        const local = try zeit.local(this.allocator, &this.env);
+        defer local.deinit();
+
+        const now_local = now.in(&local);
+
+        const dt = now_local.time();
+
+        const branch_name_buffer = try this.allocator.alloc(u8, 1024);
+        errdefer this.allocator.free(branch_name_buffer);
+
+        var writer = std.io.fixedBufferStream(branch_name_buffer);
+
+        _ = try writer.write(this.conf.username);
+        _ = try writer.write("-[Snapshot ");
+        _ = try dt.strftime(writer.writer(), "%d-%m-%Y_T%H-%M");
+        _ = try writer.write("]");
+        _ = try writer.write(&.{0});
+        return branch_name_buffer;
     }
 };
