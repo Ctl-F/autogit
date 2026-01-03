@@ -10,7 +10,12 @@ pub fn main() !void {
 
     const config = autogit.Config{
         .username = "sbrough",
-        .auto_add_commit_extensions = ".zig,.zon",
+        .auto_add_patterns = &.{
+            "src/*.zig",
+            "src/*.zon",
+            "foo/*.zon",
+            "foo/*.zig",
+        },
     };
 
     var git = try autogit.Git.init(allocator, cwd, config);

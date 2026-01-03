@@ -25,6 +25,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const glob_dep = b.dependency("glob", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -46,6 +50,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .imports = &.{
             .{ .name = "zeit", .module = zeit.module("zeit") },
+            .{ .name = "glob", .module = glob_dep.module("glob") },
         },
     });
 

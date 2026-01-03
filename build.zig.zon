@@ -36,6 +36,10 @@
             .url = "git+https://github.com/rockorager/zeit?ref=main#7ac64d72dbfb1a4ad549102e7d4e232a687d32d8",
             .hash = "zeit-0.6.0-5I6bk36tAgATpSl9wjFmRPMqYN2Mn0JQHgIcRNcqDpJA",
         },
+        .glob = .{
+            .url = "https://github.com/xcaeser/glob.zig/archive/v0.1.0.tar.gz",
+            .hash = "glob-0.1.0-AymqdJQ4AABqoaLWCtZyfQh4_bEh7c8bhffcZNp7HWsL",
+        },
     },
     .paths = .{
         "build.zig",

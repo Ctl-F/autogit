@@ -1,6 +1,8 @@
 //! By convention, root.zig is the root source file when making a library.
 const std = @import("std");
 const zeit = @import("zeit");
+const glob = @import("glob");
+
 // RULES: If BRANCH is master or main
 //      Generate new branch and commit to it
 //          ELSE
@@ -8,7 +10,7 @@ const zeit = @import("zeit");
 
 pub const Config = struct {
     username: []const u8,
-    auto_add_commit_extensions: []const u8, // comma delimited list
+    auto_add_patterns: []const []const u8,
     abort_on_conflicting: bool = true,
 };
 
@@ -54,7 +56,6 @@ pub const Git = struct {
     pub const File = struct {
         status: Status,
         filename: []const u8,
-        ext: []const u8,
     };
 
     pub fn get_current_branch(this: *@This()) ![]u8 {
@@ -100,16 +101,9 @@ pub const Git = struct {
                     else => return f,
                 }
 
-                // unstaged files here
-                var ext_iter = std.mem.SplitIterator(u8, .scalar){
-                    .buffer = this.config.auto_add_commit_extensions,
-                    .delimiter = ',',
-                    .index = 0,
-                };
-
-                while (ext_iter.next()) |ext| {
-                    std.debug.print("{s} == {s}\n", .{ ext, f.ext });
-                    if (std.mem.eql(u8, ext, f.ext)) {
+                // untracked files here
+                for (this.config.auto_add_patterns) |pattern| {
+                    if (glob.match(pattern, f.filename)) {
                         return f;
                     }
                 }
@@ -161,16 +155,10 @@ pub const Git = struct {
             };
 
             const filename = line[3..];
-            const extPos = std.mem.lastIndexOfScalar(u8, filename, '.');
-            const ext = if (extPos) |ep| // ext is wrong
-                line[ep + 1 ..]
-            else
-                "";
 
             try list.append(this.allocator, .{
                 .status = status,
                 .filename = filename,
-                .ext = ext,
             });
         }
 
