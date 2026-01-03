@@ -81,6 +81,50 @@ pub const Git = struct {
         return try this.parse_files(stdout);
     }
 
+    pub const FileIter = struct {
+        files: []File,
+        cursor: usize,
+        config: Config,
+
+        pub fn next(this: *@This()) ?File {
+            while (true) {
+                if (this.cursor >= this.files.len) return null;
+
+                const f = this.files[this.cursor];
+                this.cursor += 1;
+
+                switch (f.status) {
+                    .Conflicting => unreachable,
+                    .Unchanged, .Unsupported => continue,
+                    .Untracked => {},
+                    else => return f,
+                }
+
+                // unstaged files here
+                var ext_iter = std.mem.SplitIterator(u8, .scalar){
+                    .buffer = this.config.auto_add_commit_extensions,
+                    .delimiter = ',',
+                    .index = 0,
+                };
+
+                while (ext_iter.next()) |ext| {
+                    std.debug.print("{s} == {s}\n", .{ ext, f.ext });
+                    if (std.mem.eql(u8, ext, f.ext)) {
+                        return f;
+                    }
+                }
+            }
+        }
+    };
+
+    pub fn get_files_to_commit(this: *@This(), files: std.ArrayList(File)) FileIter {
+        return .{
+            .files = files.items,
+            .cursor = 0,
+            .config = this.conf,
+        };
+    }
+
     fn parse_files(this: *@This(), buffer: []const u8) !std.ArrayList(File) {
         var list = try std.ArrayList(File).initCapacity(this.allocator, 128);
         errdefer list.deinit(this.allocator);
@@ -118,7 +162,7 @@ pub const Git = struct {
 
             const filename = line[3..];
             const extPos = std.mem.lastIndexOfScalar(u8, filename, '.');
-            const ext = if (extPos) |ep|
+            const ext = if (extPos) |ep| // ext is wrong
                 line[ep + 1 ..]
             else
                 "";
