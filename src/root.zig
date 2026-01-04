@@ -9,8 +9,14 @@ const glob = @import("glob");
 //      Push to current branch
 
 pub const Config = struct {
+    working_directory: []const u8,
     username: []const u8,
+    first_name: []const u8,
+    last_name: []const u8,
+    email: []const u8,
     auto_add_patterns: []const []const u8,
+    branch_gen_pattern: []const u8 = "",
+    enable_auto_add: bool = true,
     abort_on_conflicting: bool = true,
 };
 
@@ -20,11 +26,10 @@ pub const Git = struct {
     // Changes: git status --porcelain
 
     allocator: std.mem.Allocator,
-    cwd: []const u8,
     env: std.process.EnvMap,
-    conf: Config,
+    confs: []const Config,
 
-    pub fn init(allocator: std.mem.Allocator, cwd: []const u8, conf: Config) !@This() {
+    pub fn init(allocator: std.mem.Allocator, confs: []const Config) !@This() {
         var map = try std.process.getEnvMap(allocator);
         errdefer map.deinit();
 
@@ -32,9 +37,8 @@ pub const Git = struct {
 
         return .{
             .allocator = allocator,
-            .cwd = cwd,
             .env = map,
-            .conf = conf,
+            .confs = confs,
         };
     }
 
@@ -58,22 +62,26 @@ pub const Git = struct {
         filename: []const u8,
     };
 
-    pub fn get_current_branch(this: *@This()) ![]u8 {
+    pub fn process(this: *@This()) !void {
+        _ = this;
+    }
+
+    fn get_current_branch(this: *@This(), conf: Config) ![]u8 {
         const result = try std.process.Child.run(.{
             .allocator = this.allocator,
             .argv = &.{ "git", "rev-parse", "--abbrev-ref", "HEAD" },
-            .cwd = this.cwd,
+            .cwd = conf.working_directory,
             .env_map = &this.env,
         });
 
         return this.unwrap_result(result);
     }
 
-    pub fn get_file_statuses(this: *@This(), buffer: *[]const u8) !std.ArrayList(File) {
+    pub fn get_file_statuses(this: *@This(), conf: Config, buffer: *[]const u8) !std.ArrayList(File) {
         const result = try std.process.Child.run(.{
             .allocator = this.allocator,
             .argv = &.{ "git", "status", "--porcelain", "--untracked-files=all" },
-            .cwd = this.cwd,
+            .cwd = conf.working_directory,
             .env_map = &this.env,
         });
 
@@ -101,6 +109,10 @@ pub const Git = struct {
                     else => return f,
                 }
 
+                if (!this.config.enable_auto_add) {
+                    continue;
+                }
+
                 // untracked files here
                 for (this.config.auto_add_patterns) |pattern| {
                     if (glob.match(pattern, f.filename)) {
@@ -111,11 +123,12 @@ pub const Git = struct {
         }
     };
 
-    pub fn get_files_to_commit(this: *@This(), files: std.ArrayList(File)) FileIter {
+    pub fn get_files_to_commit(this: *@This(), conf: Config, files: std.ArrayList(File)) FileIter {
+        _ = this;
         return .{
             .files = files.items,
             .cursor = 0,
-            .config = this.conf,
+            .config = conf,
         };
     }
 
@@ -174,7 +187,13 @@ pub const Git = struct {
         return result.stdout;
     }
 
-    pub fn gen_branch_name(this: *@This()) ![]const u8 {
+    /// conf tokens:
+    /// {{username}}
+    /// {{email}}
+    /// {{first_name}}
+    /// {{last_name}}
+    /// {{date}}
+    pub fn gen_branch_name(this: *@This(), conf: Config) ![]const u8 {
         const now = try zeit.instant(.{});
         const local = try zeit.local(this.allocator, &this.env);
         defer local.deinit();
@@ -183,16 +202,53 @@ pub const Git = struct {
 
         const dt = now_local.time();
 
-        const branch_name_buffer = try this.allocator.alloc(u8, 1024);
+        const branch_name_buffer = try this.allocator.alloc(u8, 2048);
         errdefer this.allocator.free(branch_name_buffer);
 
         var writer = std.io.fixedBufferStream(branch_name_buffer);
 
-        _ = try writer.write(this.conf.username);
-        _ = try writer.write("-[Snapshot ");
-        _ = try dt.strftime(writer.writer(), "%d-%m-%Y_T%H-%M");
-        _ = try writer.write("]");
-        _ = try writer.write(&.{0});
+        var pattern = conf.branch_gen_pattern;
+        if (pattern.len == 0) {
+            pattern = "[Snapshot]{{username}}-{{date}}";
+        }
+
+        while (pattern.len > 0) {
+            const cursor = std.mem.indexOf(u8, pattern, "{{");
+            if (cursor == null) {
+                _ = writer.write(pattern);
+                break;
+            }
+            const ci = cursor.?;
+
+            const slice = pattern[0..ci];
+            if (slice.len > 0) {
+                _ = writer.write(slice);
+            }
+
+            pattern = pattern[ci + 2 ..];
+
+            const e = std.mem.indexOf(u8, pattern, "}}");
+
+            if (e == null) {
+                _ = writer.write("{{");
+                continue;
+            }
+            const ei = e.?;
+
+            const token = pattern[0..ei];
+            if (std.mem.eql(u8, token, "username")) {
+                _ = try writer.write(conf.username);
+            } else if (std.mem.eql(u8, token, "first_name")) {
+                _ = try writer.write(conf.first_name);
+            }
+            // TODO: finish
+        }
+
+        // _ = try writer.write(conf.username);
+        // _ = try writer.write("-[Snapshot ");
+        // _ = try dt.strftime(writer.writer(), "%d-%m-%Y_T%H-%M");
+        // _ = try writer.write("]");
+        // _ = try writer.write(&.{0});
         return branch_name_buffer;
     }
 };
