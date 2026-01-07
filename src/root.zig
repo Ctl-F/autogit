@@ -205,6 +205,8 @@ pub const Git = struct {
         const branch_name_buffer = try this.allocator.alloc(u8, 2048);
         errdefer this.allocator.free(branch_name_buffer);
 
+        @memset(branch_name_buffer, 0);
+
         var writer = std.io.fixedBufferStream(branch_name_buffer);
 
         var pattern = conf.branch_gen_pattern;
@@ -215,14 +217,14 @@ pub const Git = struct {
         while (pattern.len > 0) {
             const cursor = std.mem.indexOf(u8, pattern, "{{");
             if (cursor == null) {
-                _ = writer.write(pattern);
+                _ = try writer.write(pattern);
                 break;
             }
             const ci = cursor.?;
 
             const slice = pattern[0..ci];
             if (slice.len > 0) {
-                _ = writer.write(slice);
+                _ = try writer.write(slice);
             }
 
             pattern = pattern[ci + 2 ..];
@@ -230,7 +232,7 @@ pub const Git = struct {
             const e = std.mem.indexOf(u8, pattern, "}}");
 
             if (e == null) {
-                _ = writer.write("{{");
+                _ = try writer.write("{{");
                 continue;
             }
             const ei = e.?;
@@ -241,14 +243,22 @@ pub const Git = struct {
             } else if (std.mem.eql(u8, token, "first_name")) {
                 _ = try writer.write(conf.first_name);
             }
-            // TODO: finish
+            else if(std.mem.eql(u8, token, "last_name")) {
+                _ = try writer.write(conf.last_name);
+            }
+            else if(std.mem.eql(u8, token, "date")){
+                _ = try dt.strftime(writer.writer(), "%d-%m-%Y_T%H-%M");
+            }
+            else if(std.mem.eql(u8, token, "email")){
+                _ = try writer.write(conf.email);
+            }
+            else {
+                _ = try writer.write(token);
+            }
+
+            pattern = pattern[ei+2..];
         }
 
-        // _ = try writer.write(conf.username);
-        // _ = try writer.write("-[Snapshot ");
-        // _ = try dt.strftime(writer.writer(), "%d-%m-%Y_T%H-%M");
-        // _ = try writer.write("]");
-        // _ = try writer.write(&.{0});
         return branch_name_buffer;
     }
 };

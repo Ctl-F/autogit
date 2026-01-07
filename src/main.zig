@@ -13,6 +13,7 @@ pub fn main() !void {
         .first_name = "Spencer",
         .last_name = "Brough",
         .email = "sbrough@origamirisk.com",
+        .branch_gen_pattern = "[SNAPSHOT]{{email}}-{{date}}  {{last_name}}, {{first_name}}",
         .working_directory = cwd,
         .auto_add_patterns = &.{
             "src/*.zig",
@@ -36,10 +37,10 @@ pub fn main() !void {
     //defer allocator.free(buffer);
     //defer files.deinit(allocator);
 
-    //const new_branch = try git.gen_branch_name();
-    //defer allocator.free(new_branch);
+    const new_branch = try git.gen_branch_name(git.confs[0]);
+    defer allocator.free(new_branch);
 
-    //std.debug.print("New Branch: [{s}]\n", .{std.mem.sliceTo(new_branch, 0)});
+    std.debug.print("New Branch: [{s}]\n", .{std.mem.sliceTo(new_branch, 0)});
 
     //var iter = git.get_files_to_commit(files);
     //var count: usize = 0;
