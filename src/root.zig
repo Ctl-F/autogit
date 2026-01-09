@@ -63,7 +63,78 @@ pub const Git = struct {
     };
 
     pub fn process(this: *@This()) !void {
-        _ = this;
+        for (this.confs) |conf| {
+            try this.process_repo(conf);
+        }
+    }
+
+    fn write_commit(buffer: []u8, current: []u8, append: []const u8) ![]u8 {
+        const free_space = buffer.len - current.len;
+        var to_append = append;
+        if (free_space < to_append.len) {
+            to_append = append[0..free_space];
+        }
+
+        const buffer_start = current.len;
+        const buffer_end = buffer_start + to_append.len;
+        @memcpy(buffer[buffer_start..buffer_end], to_append);
+
+        if (free_space < append.len) {
+            return error.BufferIsFull;
+        }
+
+        return buffer[0..buffer_end];
+    }
+
+    fn finalize_message(commit_message_buffer: []u8) void {
+            commit_message_buffer[commit_message_buffer.len - 3] = '.';
+            commit_message_buffer[commit_message_buffer.len - 2] = '.';
+            commit_message_buffer[commit_message_buffer.len - 1] = '.';
+    }
+
+    fn process_repo(this: *@This(), conf: Config) !void {
+        const branch = try this.get_current_branch(conf);
+        var buffer: []const u8 = &.{};
+        const files = try this.get_file_statuses(conf, &buffer);
+        defer this.allocator.free(buffer);
+        const commit_message_buffer = try this.allocator.alloc(u8, 4096);
+        defer this.allocator.free(commit_message_buffer);
+
+        var commit_message = &.{};
+
+        if (std.mem.eql(u8, branch, "main") or
+            std.mem.eql(u8, branch, "master"))
+        {
+            const new_branch = try this.gen_branch_name(conf);
+            defer this.allocator.free(new_branch);
+
+            std.debug.print("Switching branch: {s}\n", .{new_branch});
+
+            try this.set_branch(branch);
+        }
+
+        var iter = this.get_files_to_commit(conf, files);
+        while (iter.next()) |file| {
+            if (commit_message.len < commit_message_buffer.len) {
+                commit_message = write_commit(commit_message_buffer, commit_message, file.filename) catch {
+                    finalize_message(commit_message_buffer);
+                    commit_message = &commit_message_buffer;
+                };
+
+                commit_message = write_commit(commit_message_buffer, commit_message, " ") catch {
+                    finalize_message(commit_message_buffer);
+                    commit_message = &commit_message;
+                };
+
+                commit_message = write_commit(commit_message, commit_message, switch(file.status) {
+                    .Added => "added",
+                }) catch {
+                    finalize_message(commit_message_buffer);
+                    commit_message = &commit_message;
+                }
+            }
+
+        }
     }
 
     fn get_current_branch(this: *@This(), conf: Config) ![]u8 {
@@ -75,6 +146,18 @@ pub const Git = struct {
         });
 
         return this.unwrap_result(result);
+    }
+
+    fn set_branch(this: *@This(), conf: Config, branch: []const u8) !void {
+        const result = try std.process.Child.run(.{
+            .allocator = this.allocator,
+            .argv = &.{ "git", "checkout", "-b", branch },
+            .cwd = conf.working_directory,
+            .env_map = &this.env,
+        });
+
+        const buf = try this.unwrap_result(result);
+        this.allocator.free(buf);
     }
 
     pub fn get_file_statuses(this: *@This(), conf: Config, buffer: *[]const u8) !std.ArrayList(File) {
@@ -242,21 +325,17 @@ pub const Git = struct {
                 _ = try writer.write(conf.username);
             } else if (std.mem.eql(u8, token, "first_name")) {
                 _ = try writer.write(conf.first_name);
-            }
-            else if(std.mem.eql(u8, token, "last_name")) {
+            } else if (std.mem.eql(u8, token, "last_name")) {
                 _ = try writer.write(conf.last_name);
-            }
-            else if(std.mem.eql(u8, token, "date")){
+            } else if (std.mem.eql(u8, token, "date")) {
                 _ = try dt.strftime(writer.writer(), "%d-%m-%Y_T%H-%M");
-            }
-            else if(std.mem.eql(u8, token, "email")){
+            } else if (std.mem.eql(u8, token, "email")) {
                 _ = try writer.write(conf.email);
-            }
-            else {
+            } else {
                 _ = try writer.write(token);
             }
 
-            pattern = pattern[ei+2..];
+            pattern = pattern[ei + 2 ..];
         }
 
         return branch_name_buffer;
