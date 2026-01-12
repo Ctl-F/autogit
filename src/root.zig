@@ -87,9 +87,9 @@ pub const Git = struct {
     }
 
     fn finalize_message(commit_message_buffer: []u8) void {
-            commit_message_buffer[commit_message_buffer.len - 3] = '.';
-            commit_message_buffer[commit_message_buffer.len - 2] = '.';
-            commit_message_buffer[commit_message_buffer.len - 1] = '.';
+        commit_message_buffer[commit_message_buffer.len - 3] = '.';
+        commit_message_buffer[commit_message_buffer.len - 2] = '.';
+        commit_message_buffer[commit_message_buffer.len - 1] = '.';
     }
 
     fn process_repo(this: *@This(), conf: Config) !void {
@@ -126,52 +126,80 @@ pub const Git = struct {
                     commit_message = &commit_message;
                 };
 
-                commit_message = write_commit(commit_message, commit_message, switch(file.status) {
+                commit_message = write_commit(commit_message_buffer, commit_message, switch (file.status) {
                     .Added => "added",
+                    .Modified => "modified",
+                    .Deleted => "deleted",
+                    .Renamed => "renamed",
+                    .Conflicting => "conflicting",
+                    .Untracked => "untracked",
+                    .Unchanged => "unchanged",
+                    .Unsupported => "unsupported",
                 }) catch {
                     finalize_message(commit_message_buffer);
                     commit_message = &commit_message;
-                }
+                };
+
+                commit_message = write_commit(commit_message_buffer, commit_message, "\n") catch {
+                    finalize_message(commit_message_buffer);
+                    commit_message = &commit_message;
+                };
             }
 
+            const result = try this.exec(conf, &.{ "git", "add", file.filename });
+            _ = result; // TODO
         }
     }
 
     fn get_current_branch(this: *@This(), conf: Config) ![]u8 {
-        const result = try std.process.Child.run(.{
-            .allocator = this.allocator,
-            .argv = &.{ "git", "rev-parse", "--abbrev-ref", "HEAD" },
-            .cwd = conf.working_directory,
-            .env_map = &this.env,
-        });
+        const result = try this.exec(conf, &.{ "git", "rev-parse", "--abbrev-ref", "HEAD" });
 
         return this.unwrap_result(result);
     }
 
     fn set_branch(this: *@This(), conf: Config, branch: []const u8) !void {
-        const result = try std.process.Child.run(.{
-            .allocator = this.allocator,
-            .argv = &.{ "git", "checkout", "-b", branch },
-            .cwd = conf.working_directory,
-            .env_map = &this.env,
-        });
+        const result = try this.exec(conf, &.{ "git", "checkout", "-b", branch });
 
         const buf = try this.unwrap_result(result);
         this.allocator.free(buf);
     }
 
-    pub fn get_file_statuses(this: *@This(), conf: Config, buffer: *[]const u8) !std.ArrayList(File) {
-        const result = try std.process.Child.run(.{
+    fn exec(this: *@This(), conf: Config, args: []const []const u8) !std.process.Child.RunResult {
+        return try std.process.Child.run(.{
             .allocator = this.allocator,
-            .argv = &.{ "git", "status", "--porcelain", "--untracked-files=all" },
+            .argv = args,
             .cwd = conf.working_directory,
             .env_map = &this.env,
         });
-
-        const stdout = this.unwrap_result(result);
-        buffer.* = stdout;
-        return try this.parse_files(stdout);
     }
+
+    pub fn get_file_statuses(this: *@This(), conf: Config, buffer: *[]const u8) !std.ArrayList(File) {
+        var list = std.ArrayList(File).empty;
+
+        // base command: git ls-files --full-name
+        // -d deleted
+        // -m modified
+        // -o (others) untracked
+
+        const args = [_]u8{ "-d", "-m", "-o" };
+        const flags: [_]struct { del: bool, other: bool } = .{
+            .{ .del = true, .other = false },
+            .{ .del = false, .other = false },
+            .{ .del = false, .other = true },
+        };
+
+        for (args) |arg| {
+            var result = try this.exec(conf, &.{ "git", "ls-files", "--full-name", arg });
+        }
+    }
+
+    // pub fn get_file_statuses(this: *@This(), conf: Config, buffer: *[]const u8) !std.ArrayList(File) {
+    //     const result = try this.exec(conf, &.{ "git", "status", "--porcelain", "--untracked-files=all" });
+
+    //     const stdout = this.unwrap_result(result);
+    //     buffer.* = stdout;
+    //     return try this.parse_files(stdout);
+    // }
 
     pub const FileIter = struct {
         files: []File,
@@ -215,51 +243,51 @@ pub const Git = struct {
         };
     }
 
-    fn parse_files(this: *@This(), buffer: []const u8) !std.ArrayList(File) {
-        var list = try std.ArrayList(File).initCapacity(this.allocator, 128);
-        errdefer list.deinit(this.allocator);
+    // fn parse_files(this: *@This(), buffer: []const u8) !std.ArrayList(File) {
+    //     var list = try std.ArrayList(File).initCapacity(this.allocator, 128);
+    //     errdefer list.deinit(this.allocator);
 
-        var iter = std.mem.SplitIterator(u8, .scalar){
-            .buffer = buffer,
-            .delimiter = '\n',
-            .index = 0,
-        };
+    //     var iter = std.mem.SplitIterator(u8, .scalar){
+    //         .buffer = buffer,
+    //         .delimiter = '\n',
+    //         .index = 0,
+    //     };
 
-        while (iter.next()) |line| {
-            if (line.len < 3) continue;
+    //     while (iter.next()) |line| {
+    //         if (line.len < 3) continue;
 
-            const X = line[0];
-            const Y = line[1];
+    //         const X = line[0];
+    //         const Y = line[1];
 
-            const status = STAT: {
-                if (X == 'U' or Y == 'U') {
-                    break :STAT Status.Conflicting;
-                }
+    //         const status = STAT: {
+    //             if (X == 'U' or Y == 'U') {
+    //                 break :STAT Status.Conflicting;
+    //             }
 
-                if (X == '?' or Y == '?') {
-                    break :STAT Status.Untracked;
-                }
+    //             if (X == '?' or Y == '?') {
+    //                 break :STAT Status.Untracked;
+    //             }
 
-                break :STAT switch (Y) {
-                    'M' => Status.Modified,
-                    'A' => Status.Added,
-                    'R' => Status.Renamed,
-                    'D' => Status.Deleted,
-                    ' ' => Status.Unchanged,
-                    else => Status.Unsupported,
-                };
-            };
+    //             break :STAT switch (Y) {
+    //                 'M' => Status.Modified,
+    //                 'A' => Status.Added,
+    //                 'R' => Status.Renamed,
+    //                 'D' => Status.Deleted,
+    //                 ' ' => Status.Unchanged,
+    //                 else => Status.Unsupported,
+    //             };
+    //         };
 
-            const filename = line[3..];
+    //         const filename = line[3..];
 
-            try list.append(this.allocator, .{
-                .status = status,
-                .filename = filename,
-            });
-        }
+    //         try list.append(this.allocator, .{
+    //             .status = status,
+    //             .filename = filename,
+    //         });
+    //     }
 
-        return list;
-    }
+    //     return list;
+    // }
 
     fn unwrap_result(this: *@This(), result: std.process.Child.RunResult) []u8 {
         if (result.stderr.len > 0) {
