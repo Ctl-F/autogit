@@ -23,8 +23,10 @@ pub fn main() !void {
         },
     };
 
-    var git = try autogit.Git.init(allocator, &.{ config });
+    var git = try autogit.Git.init(allocator, &.{config});
     defer git.deinit();
+
+    git.process();
 
     //const branch = try git.get_current_branch();
     //defer allocator.free(branch);
@@ -37,10 +39,10 @@ pub fn main() !void {
     //defer allocator.free(buffer);
     //defer files.deinit(allocator);
 
-    const new_branch = try git.gen_branch_name(git.confs[0]);
-    defer allocator.free(new_branch);
+    //const new_branch = try git.gen_branch_name(git.confs[0]);
+    //defer allocator.free(new_branch);
 
-    std.debug.print("New Branch: [{s}]\n", .{std.mem.sliceTo(new_branch, 0)});
+    //std.debug.print("New Branch: [{s}]\n", .{std.mem.sliceTo(new_branch, 0)});
 
     //var iter = git.get_files_to_commit(files);
     //var count: usize = 0;
