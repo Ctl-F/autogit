@@ -113,11 +113,13 @@ pub const Git = struct {
         try stdout.interface.writeAll(conf.working_directory);
         try stdout.interface.writeByte('\n');
 
-        const branch = try this.get_current_branch(conf);
+        const branch_current = try this.get_current_branch(conf);
 
         try stdout.interface.writeAll("Current Branch: ");
-        try stdout.interface.writeAll(branch);
+        try stdout.interface.writeAll(branch_current);
         try stdout.interface.writeByte('\n');
+
+        const branch = std.mem.trim(u8, branch_current, " \n\t\r");
 
         if (std.mem.eql(u8, branch, "main") or
             std.mem.eql(u8, branch, "master"))
