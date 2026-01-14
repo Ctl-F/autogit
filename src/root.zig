@@ -131,7 +131,7 @@ pub const Git = struct {
             try stdout.interface.writeAll(new_branch);
             try stdout.interface.writeByte('\n');
 
-            try this.set_branch(conf, branch);
+            try this.set_branch(conf, new_branch);
         }
 
         var buffer: []const u8 = &.{};
