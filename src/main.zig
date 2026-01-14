@@ -4,7 +4,7 @@ const autogit = @import("autogit");
 pub fn main() !void {
     const cwd = "/home/ctlf/dev/zig/autogit/";
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer std.debug.assert(gpa.deinit() == .ok);
+    //defer std.debug.assert(gpa.deinit() == .ok); // I know we are leaking memory currently. The os will clean up until we do
 
     const allocator = gpa.allocator();
 

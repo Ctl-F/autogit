@@ -76,7 +76,7 @@ pub const Git = struct {
                     conf.working_directory,
                 });
                 this.revert(conf, head) catch {
-                    std.debug.print("Catastrophic Failure: Unable to revert work. Possible loss of data may have occurred.\n");
+                    std.debug.print("Catastrophic Failure: Unable to revert work. Possible loss of data may have occurred.\n", .{});
                 };
             };
         }
@@ -135,22 +135,22 @@ pub const Git = struct {
         var buffer: []const u8 = &.{};
         const files = try this.get_file_statuses(conf, &buffer);
         defer this.allocator.free(buffer);
-        const commit_message_buffer = try this.allocator.alloc(u8, 4096);
+        var commit_message_buffer = try this.allocator.alloc(u8, 4096);
         defer this.allocator.free(commit_message_buffer);
 
-        var commit_message = &.{};
+        var commit_message: []u8 = &.{};
 
         //var iter = this.get_files_to_commit(conf, files);
         for (files.items) |file| {
             if (commit_message.len < commit_message_buffer.len) {
-                commit_message = write_commit(commit_message_buffer, commit_message, file.filename) catch {
+                commit_message = write_commit(commit_message_buffer, commit_message, file.filename) catch RES4: {
                     finalize_message(commit_message_buffer);
-                    commit_message = &commit_message_buffer;
+                    break :RES4 commit_message_buffer[0..];
                 };
 
-                commit_message = write_commit(commit_message_buffer, commit_message, " ") catch {
+                commit_message = write_commit(commit_message_buffer, commit_message, " ") catch RES3: {
                     finalize_message(commit_message_buffer);
-                    commit_message = &commit_message;
+                    break :RES3 commit_message_buffer[0..];
                 };
 
                 commit_message = write_commit(commit_message_buffer, commit_message, switch (file.status) {
@@ -164,23 +164,31 @@ pub const Git = struct {
                     .Unsupported => "unsupported",
                 }) catch RES2: {
                     finalize_message(commit_message_buffer);
-                    break :RES2 &commit_message_buffer;
+                    break :RES2 commit_message_buffer[0..];
                 };
 
                 commit_message = write_commit(commit_message_buffer, commit_message, "\n") catch RES: {
                     finalize_message(commit_message_buffer);
-                    break :RES &commit_message_buffer;
+                    break :RES commit_message_buffer[0..];
                 };
             }
 
             //const result = try this.exec(conf, &.{ "git", "add", file.filename });
             //_ = result; // TODO
         }
-        var res = try this.exec(conf, &.{ "git", "commit", "-m", "\"", commit_message, "\"" });
+
+        const qtcomm = try this.allocator.alloc(u8, commit_message.len + 2);
+        defer this.allocator.free(qtcomm);
+
+        @memcpy(qtcomm[1 .. commit_message.len + 1], commit_message);
+        qtcomm[0] = '"';
+        qtcomm[qtcomm.len - 1] = '"';
+
+        var res = try this.exec(conf, &.{ "git", "commit", "-m", qtcomm });
         this.allocator.free(this.unwrap_result(res));
 
         res = try this.exec(conf, &.{ "git", "push", "-u", "origin" });
-        this.alloator.free(this.unwrap_result(res));
+        this.allocator.free(this.unwrap_result(res));
     }
 
     fn get_head(this: *@This(), conf: Config) ![]u8 {
@@ -197,7 +205,7 @@ pub const Git = struct {
         hqt[hqt.len - 1] = '"';
 
         const result = try this.exec(conf, &.{ "git", "reset", "--mixed", hqt });
-        return this.unwrap_result(result);
+        this.allocator.free(this.unwrap_result(result));
     }
 
     fn get_current_branch(this: *@This(), conf: Config) ![]u8 {
@@ -214,6 +222,12 @@ pub const Git = struct {
     }
 
     fn exec(this: *@This(), conf: Config, args: []const []const u8) !std.process.Child.RunResult {
+        std.debug.print("Executing: ", .{});
+        for (args) |arg| {
+            std.debug.print("{s} ", .{arg});
+        }
+        std.debug.print("\n", .{});
+
         return try std.process.Child.run(.{
             .allocator = this.allocator,
             .argv = args,
@@ -246,11 +260,17 @@ pub const Git = struct {
             _ = buffer;
 
             const buf = this.unwrap_result(result);
+
+            std.debug.print("{s}-RESULT[[[{s}]]]\n", .{ arg, buf });
+
             // defer this.allocator.free(buf);
             // the above might be wrong. We might not want to free the buffer so soon since
             // files will be pointing to filenames in the buffer
             var iter = std.mem.splitScalar(u8, buf, '\n');
-            while (iter.next()) |fname| {
+            while (iter.next()) |fname_raw| {
+                const fname = std.mem.trim(u8, fname_raw, " \t\n\r");
+                if (fname.len == 0) continue;
+
                 if (flag.del) {
                     const subres = try this.exec(conf, &.{ "git", "rm", fname });
                     this.allocator.free(this.unwrap_result(subres));
