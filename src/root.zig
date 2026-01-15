@@ -70,6 +70,8 @@ pub const Git = struct {
             };
             defer this.allocator.free(head);
 
+            std.debug.print("Head is: {s}\n", .{head});
+
             this.process_repo(conf) catch |err| {
                 std.debug.print("{}) Respository located at '{s}' failed to auto-commit successfully.\n", .{
                     err,
@@ -187,39 +189,42 @@ pub const Git = struct {
         qtcomm[qtcomm.len - 1] = '"';
 
         var res = try this.exec(conf, &.{ "git", "commit", "-m", qtcomm });
-        this.allocator.free(this.unwrap_result(res));
+        this.allocator.free(try this.unwrap_result(res));
 
         res = try this.exec(conf, &.{ "git", "push", "-u", "origin" });
-        this.allocator.free(this.unwrap_result(res));
+        this.allocator.free(try this.unwrap_result(res));
     }
 
     fn get_head(this: *@This(), conf: Config) ![]u8 {
         const result = try this.exec(conf, &.{ "git", "rev-parse", "HEAD" });
-        return this.unwrap_result(result);
+        return try this.unwrap_result(result);
     }
 
-    fn revert(this: *@This(), conf: Config, head: []const u8) !void {
-        const hqt = try this.allocator.alloc(u8, head.len + 2);
-        defer this.allocator.free(hqt);
+    fn revert(this: *@This(), conf: Config, head_raw: []const u8) !void {
+        const head = std.mem.trim(u8, head_raw, "\n\t\r ");
+        _ = head;
 
-        @memcpy(hqt[1 .. 1 + head.len], head);
-        hqt[0] = '"';
-        hqt[hqt.len - 1] = '"';
-
-        const result = try this.exec(conf, &.{ "git", "reset", "--mixed", hqt });
-        this.allocator.free(this.unwrap_result(result));
+        const result = try this.exec(conf, &.{ "git", "reset", "--mixed", "HEAD" });
+        this.allocator.free(try this.unwrap_result(result));
     }
 
     fn get_current_branch(this: *@This(), conf: Config) ![]u8 {
         const result = try this.exec(conf, &.{ "git", "rev-parse", "--abbrev-ref", "HEAD" });
 
-        return this.unwrap_result(result);
+        return try this.unwrap_result(result);
     }
 
     fn set_branch(this: *@This(), conf: Config, branch: []const u8) !void {
-        const result = try this.exec(conf, &.{ "git", "checkout", "-b", branch });
+        const bqt = try this.allocator.alloc(u8, branch.len + 2);
+        defer this.allocator.free(bqt);
 
-        const buf = this.unwrap_result(result);
+        @memcpy(bqt[1 .. 1 + branch.len], branch);
+        bqt[0] = '"';
+        bqt[bqt.len - 1] = '"';
+
+        const result = try this.exec(conf, &.{ "git", "checkout", "-b", bqt });
+
+        const buf = try this.unwrap_result(result);
         this.allocator.free(buf);
     }
 
@@ -261,9 +266,7 @@ pub const Git = struct {
             // but the tool has such a short lifespan that we should be ok to leak some memory for now
             _ = buffer;
 
-            const buf = this.unwrap_result(result);
-
-            std.debug.print("{s}-RESULT[[[{s}]]]\n", .{ arg, buf });
+            const buf = try this.unwrap_result(result);
 
             // defer this.allocator.free(buf);
             // the above might be wrong. We might not want to free the buffer so soon since
@@ -275,7 +278,7 @@ pub const Git = struct {
 
                 if (flag.del) {
                     const subres = try this.exec(conf, &.{ "git", "rm", fname });
-                    this.allocator.free(this.unwrap_result(subres));
+                    this.allocator.free(try this.unwrap_result(subres));
 
                     try list.append(this.allocator, .{
                         .filename = fname,
@@ -295,7 +298,7 @@ pub const Git = struct {
                     } else continue;
 
                     const subres = try this.exec(conf, &.{ "git", "add", fname });
-                    this.allocator.free(this.unwrap_result(subres));
+                    this.allocator.free(try this.unwrap_result(subres));
 
                     try list.append(this.allocator, .{
                         .filename = fname,
@@ -305,7 +308,7 @@ pub const Git = struct {
 
                 {
                     const subres = try this.exec(conf, &.{ "git", "add", fname });
-                    this.allocator.free(this.unwrap_result(subres));
+                    this.allocator.free(try this.unwrap_result(subres));
 
                     try list.append(this.allocator, .{
                         .filename = fname,
@@ -413,9 +416,15 @@ pub const Git = struct {
     //     return list;
     // }
 
-    fn unwrap_result(this: *@This(), result: std.process.Child.RunResult) []u8 {
-        if (result.stderr.len > 0) {
-            std.debug.print("Error stream was populated: {s}\n", .{result.stderr});
+    fn unwrap_result(this: *@This(), result: std.process.Child.RunResult) ![]u8 {
+        if (result.term.Exited != 0) {
+            if (result.stderr.len > 0) {
+                std.debug.print("Error stream was populated: {s}\n", .{result.stderr});
+            }
+            this.allocator.free(result.stderr);
+            this.allocator.free(result.stdout);
+
+            return error.ResultFailure;
         }
 
         this.allocator.free(result.stderr);
@@ -446,7 +455,7 @@ pub const Git = struct {
 
         var pattern = conf.branch_gen_pattern;
         if (pattern.len == 0) {
-            pattern = "[Snapshot]{{username}}-{{date}}";
+            pattern = "Snapshot_{{username}}-{{date}}";
         }
 
         while (pattern.len > 0) {
@@ -490,6 +499,25 @@ pub const Git = struct {
             pattern = pattern[ei + 2 ..];
         }
 
+        for (0..branch_name_buffer.len) |idx| {
+            if (branch_name_buffer[idx] == 0) break;
+
+            if (!is_allowed_in_branch(branch_name_buffer[idx])) {
+                branch_name_buffer[idx] = '_';
+            }
+        }
+
         return branch_name_buffer;
+    }
+
+    inline fn is_allowed_in_branch(char: u8) bool {
+        return in_range(char, '0', '9') or
+            in_range(char, 'a', 'z') or
+            in_range(char, 'A', 'Z') or
+            char == '_' or char == '-' or char == '.';
+    }
+
+    inline fn in_range(val: u8, min: u8, max: u8) bool {
+        return min <= val and val <= max;
     }
 };
