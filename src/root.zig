@@ -191,7 +191,7 @@ pub const Git = struct {
         var res = try this.exec(conf, &.{ "git", "commit", "-m", qtcomm });
         this.allocator.free(try this.unwrap_result(res));
 
-        res = try this.exec(conf, &.{ "git", "push", "-u", "origin" });
+        res = try this.exec(conf, &.{ "git", "push", "-u", "origin", "HEAD" });
         this.allocator.free(try this.unwrap_result(res));
     }
 
@@ -215,14 +215,7 @@ pub const Git = struct {
     }
 
     fn set_branch(this: *@This(), conf: Config, branch: []const u8) !void {
-        const bqt = try this.allocator.alloc(u8, branch.len + 2);
-        defer this.allocator.free(bqt);
-
-        @memcpy(bqt[1 .. 1 + branch.len], branch);
-        bqt[0] = '"';
-        bqt[bqt.len - 1] = '"';
-
-        const result = try this.exec(conf, &.{ "git", "checkout", "-b", bqt });
+        const result = try this.exec(conf, &.{ "git", "checkout", "-b", branch });
 
         const buf = try this.unwrap_result(result);
         this.allocator.free(buf);

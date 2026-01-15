@@ -13,7 +13,7 @@ pub fn main() !void {
         .first_name = "Spencer",
         .last_name = "Brough",
         .email = "sbrough@origamirisk.com",
-        .branch_gen_pattern = "[SNAPSHOT]{{email}}-{{date}}  {{last_name}}, {{first_name}}",
+        .branch_gen_pattern = "Snapshot_{{username}}-{{date}}",
         .working_directory = cwd,
         .auto_add_patterns = &.{
             "src/*.zig",
