@@ -1,0 +1,38 @@
+.{
+    .{
+        .username = "sbrough",
+        .first_name = "Spencer",
+        .last_name = "Brough",
+        .email = "sbrough@origamirisk.com",
+        // allowed tokens: {{username}} {{first_name}} {{last_name}} {{date}} {{email}}\r\n");
+        // if not on main we will switch automatically to the branch using this pattern.\r\n");
+        // that said it's highly recommended that date is included somewhere so that branch names are distinct
+        .branch_gen_pattern = "Snapshot_{{username}}-{{date}}",
+        .working_directory = "C:\\code\\Origami\\",
+        .auto_add_patterns = .{
+            "Origami\\Origami.Core\\Models\\*.cs",
+            "Origami\\Origami.Core\\Models\\Entities\\*.cs",
+            "Origami\\Origami\\Views\\*.cshtml",
+            "Origami\\Origami\\Controllers\\*.cs",
+            "Origami\\Origami\\content\\config\\*.xml",
+            "Origami\\Origami\\content\\Scripts\\*.js",
+        },
+    },
+    .{
+        .username = "ctl-f",
+        .first_name = "Spencer",
+        .last_name = "Brough",
+        .email = "ctlf@duck.com",
+        // allowed tokens: {{username}} {{first_name}} {{last_name}} {{date}} {{email}}\r\n");
+        // if not on main we will switch automatically to the branch using this pattern.\r\n");
+        // that said it's highly recommended that date is included somewhere so that branch names are distinct
+        .branch_gen_pattern = "Snapshot_{{username}}-{{date}}",
+        .working_directory = "/home/ctlf/dev/zig/autogit/",
+        .auto_add_patterns = .{
+            "src/*.zig",
+            "foo/*.zig",
+            "*.zig",
+            "*.zon",
+        },
+    },
+}
